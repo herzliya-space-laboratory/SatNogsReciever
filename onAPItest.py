@@ -79,7 +79,7 @@ class Glouton:
                 #self.send_packets_to_endnode(conn,telemetry)
                 with open('last_packet.txt','w') as last_packet_file:
                     last_packet_file.write(f'{str(self.last_packet_time)}')
-                print("Git")
+                print("GitSDFGHJKL")
             with open('last_packet.txt','w') as last_packet_file:
                 last_packet_file.write(f'{str(self.last_packet_time)}')
 

@@ -2,98 +2,184 @@ import requests
 import os
 import datetime
 import socket
+import threading
+
+global last_packet_time, api_page
 
 
+def name():
+    global last_packet_time,api_page
+    print("name test")
+    if check_for_file('last_packet.txt'):
+        with open("last_packet.txt","r") as last_packet_file:
+            last_packet_time = last_packet_file.read()
+    else:
+        last_packet_time = None
+        api_page = None
 
-class Glouton:
-    def __init__(self):
-        if self.check_for_file('last_packet.txt'):
-            with open("last_packet.txt","r") as last_packet_file:
-                self.last_packet_time = last_packet_file.read()
-        else:
-            self.last_packet_time = None
-        self.api_page = None
 
-    def check(self, give_date):
-        date = datetime.datetime.strptime(give_date, "%Y-%m-%d %H:%M:%S")
-        self.api_page = requests.get("https://db.satnogs.org/api/telemetry/?satellite=44854", headers={'Authorization': 'Token 460d9df5d3d516a3ecb9964d8c54f6fd31301e3a'})
-        for packet in range(0,len(list(self.api_page.json()))):
-            time = str(dict(self.api_page.json()[packet]).get("timestamp"))
-            packet_date = datetime.datetime.strptime(time, '%Y-%m-%dT%H:%M:%SZ')
-            if packet_date >= date:
-                with open("log.txt","w") as datafile:
-                    datafile.write(str(dict(self.api_page.json()[packet]).get("frame")))
+def write_to_file(file_name, mode, text):
+    with open(file_name, mode) as file:
+        file.write(text)
 
-                print("[+]writed to the file")
-            else:
-                print("[-]The packet is not Okay.")
+
+def connect_to_endnode():
+    s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    s.bind(("127.0.0.1",4001))
+    s.listen(2)
+    conn,addr = s.accept()
+    return conn
+
+
+def check(give_date,conn,norad_id):
+    global api_page,last_packet_time
+    date = datetime.datetime.strptime(give_date, "%Y-%m-%d %H:%M:%S")
+    page_number = 1
+    try:
+        while True:
+            try:
+                api_page = requests.get(f"https://db.satnogs.org/api/telemetry/?satellite={norad_id}&page={page_number}",headers={'Authorization': 'Token 460d9df5d3d516a3ecb9964d8c54f6fd31301e3a'})
+            except:
                 return
+            if len(api_page.json()) == 1:
+                if dict(api_page.json())["detail"] == "Invalid page.":
+                    return
+                
+            for packet in range(0,len(list(api_page.json()))):
+                print(f"page number:{page_number}")
+                time = str(dict(api_page.json()[packet]).get("timestamp"))
+                packet_date = datetime.datetime.strptime(time, '%Y-%m-%dT%H:%M:%SZ')
+                if packet_date >= date:
+                    data_packet = str(dict(api_page.json()[packet]).get("frame"))
+                    write_to_file("log.txt", "a", data_packet+"\n")
+                    conn.send(bytes.fromhex(data_packet))
+                    print("[+]the packet have been writed to file")
+                else:
+                    print("[-]The packet is not Okay.")
+                    return
+            page_number += 1
+    except:
+        print("yafe")
 
 
-    def check_for_file(self,cfile):
-        files = []
-        for roots, dirs, file in os.walk(os.getcwd()):
-            for i in file:
+def check_for_file(cfile):
+    files = []
+    for roots, dirs, file in os.walk(os.getcwd()):
+        for i in file:
                 files.append(i)
         if cfile in files:
-            #check this
             return True
         else:
             return False
 
-    #def connect_to_endnode(self):
-        #ip_addr = "127.0.0.1"
-        #port = 61016
-        #s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        #s.bind((ip_addr,port))
-        #s.listen(2)
-        #conn,addr = s.accept()
-        #return conn
 
-    #def send_packet_to_endnode(self,conn,packet):
-        #conn.send(bytes.fromhex(packet))
+"""def download_packets(conn,norad_id):
+    global api_page,last_packet_time
+    api_page = None
 
-    def download_packets(self):
-        self.api_page = api_page = requests.get("https://db.satnogs.org/api/telemetry/?satellite=44854", headers={'Authorization': 'Token 460d9df5d3d516a3ecb9964d8c54f6fd31301e3a'})
-        self.api_page = api_page.json()[0]
-        #conn = self.connect_to_endnode()
-        print("[+]start running")
+    print("[+]start running")
 
-        while True:
-            packet_time = datetime.datetime.strptime(str(dict(self.api_page).get("timestamp")), "%Y-%m-%dT%H:%M:%SZ")
-            while packet_time != self.last_packet_time:
-                self.api_page = requests.get("https://db.satnogs.org/api/telemetry/?satellite=44854", headers={'Authorization': 'Token 460d9df5d3d516a3ecb9964d8c54f6fd31301e3a'})
-                self.api_page = dict(self.api_page.json()[0])
-                telemetry = self.api_page["frame"]  #this is the hex
-                ptime = self.api_page.get("timestamp")
-                time = str(self.api_page.get("timestamp"))
-                packet_date = datetime.datetime.strptime(time,'%Y-%m-%dT%H:%M:%SZ')
-                #print(f"new_packet_time<{datetime.datetime.now()}>:{list_of_telemetry}\r")
-                #self.send_packet_to_endnode(conn,telemetry)
-                with open('log.txt','a') as log:
-                    log.write(f"\n{ptime}\n{telemetry}")
-                self.last_packet_time = datetime.datetime.strptime(ptime, "%Y-%m-%dT%H:%M:%SZ")
-                print("A new packet have been writed to file")
-                with open('last_packet.txt','w') as last_packet_file:
-                    last_packet_file.write(f'{str(self.last_packet_time)}')
+    while True:
+        api_page = requests.get(f"https://db.satnogs.org/api/telemetry/?satellite={norad_id}",headers={'Authorization': 'Token 460d9df5d3d516a3ecb9964d8c54f6fd31301e3a'})
+        api_page = api_page.json()
+        for i in range(len(api_page)-1):
+            packet_data = api_page[i]
+            packet_time = datetime.datetime.strptime(str(packet_data.get("timestamp")), "%Y-%m-%dT%H:%M:%SZ")
+            write_to_file("last_packet.txt","w", f"{str(packet_time)}")
+            write_to_file("log.txt","w", f"{packet_data["frame"]}")
 
-            with open('last_packet.txt','w') as last_packet_file:
-                last_packet_file.write(f'{str(self.last_packet_time)}')
+        while packet_time != last_packet_time:
+            api_page = requests.get(f"https://db.satnogs.org/api/telemetry/?satellite={norad_id}",headers={'Authorization': 'Token aee279123330eaef48d0ee5920c02e760fff5132'})
 
-    def main(self):
-        if self.check_for_file('log.txt'):
-            with open('last_packet.txt','r') as fread:
-                if len(list(fread.read())) > 8:
-                    #print(fread.read())
-                    self.check(fread.read())
-            self.download_packets()
-        else:
-            date = input("Enter the full date including hours in this form yyyy-mm-dd hh:mm:ss</>")
-            self.check(date)
-            #------------------------------------#
-            self.download_packets()
+            #api_page = dict(api_page.json()[0])
+            telemetry = packet_data["frame"]  #this is the hex
+            ptime = packet_data.get("timestamp")
+            time = str(packet_data.get("timestamp"))
+            conn.send(bytes.fromhex(telemetry))
+            write_to_file("log.txt", 'a', f"\n{ptime}\n{telemetry}")
+            last_packet_time = datetime.datetime.strptime(ptime, "%Y-%m-%dT%H:%M:%SZ")
+            print("A new packet have been writed to file")
+            write_to_file("last_packet.txt", "w", f"{str(last_packet_time)}")
+
+        write_to_file("last_packet.txt", "w", f"{str(last_packet_time)}")
+"""
+def return_packet_time(packet):
+    return datetime.datetime.strptime(packet, "%Y-%m-%dT%H:%M:%SZ")
+
+def get_packets_page(norad_id):
+    return requests.get(f"https://db.satnogs.org/api/telemetry/?satellite={norad_id}",headers={'Authorization': 'Token 460d9df5d3d516a3ecb9964d8c54f6fd31301e3a'}).json()
+
+def get_packet_element(packet, element):
+    return packet[element]
+
+
+def check_if_last_packet():
+    try:
+        with open("last_packet.txt", "r") as fin:
+            return return_packet_time(fin.read())
+    
+    except:
+        return False
+
+
+def extract_packet_data(packet):
+    return packet["timestamp"], packet["frame"]
+
+
+def download_packets(conn, norad_id):
+    global api_page,last_packet_time
+    api_page = None
+    last_packet_time = check_if_last_packet()
+
+    print("[+]start running")
+
+    while True:
+            api_page = get_packets_page(norad_id)
+            if last_packet_time == False:
+                last_packet_time = datetime.datetime(1970, 1, 1, 1, 1, 1, 1)
+
+            for i in api_page:
+                packet_time = return_packet_time(i["timestamp"])
+                #print(f"packet time:{packet_time}\nlast packet time:{last_packet_time}\n{packet_time > last_packet_time}")
+                print("last packet",last_packet_time, "next packet:",packet_time)
+                if (packet_time > last_packet_time):
+                    print("[+]last packet",last_packet_time, "next packet:",packet_time)
+                    ptime, telemetry = extract_packet_data(i)
+                    ptime = return_packet_time(ptime)
+                    conn.send(bytes.fromhex(telemetry))
+                    write_to_file("log.txt", 'a', f"\n{str(ptime)}\n{telemetry}")
+                    last_packet_time = ptime
+                    print("A new packet have been writed to file")
+                    write_to_file("last_packet.txt", "w", f"{str(last_packet_time)}")
+
+
+   # write_to_file("last_packet.txt", "w", f"{str(last_packet_time)}")
+
+def main():
+    duchifat_3_norad = 30776
+    #duchifat_1_norad = 40021
+    conn = connect_to_endnode()
+    name()
+    print("test")
+    if check_for_file('log.txt'):
+        with open('last_packet.txt', 'r') as data_read:
+            data_file = data_read.read()
+            if len(list(data_file)) > 8:
+                check(data_file, conn,duchifat_3_norad)
+                #check(data_file,conn,duchifat_1_norad)
+            download_packets(conn,duchifat_3_norad)
+            #download_packets_thread = threading.Thread(target=download_packets)
+            #download_packets_thread.start()
+    else:
+        date = input("Enter the full date including hours in this form yyyy-mm-dd hh:mm:ss</>")
+        check(date, conn,duchifat_3_norad)
+        #check(date,conn,duchifat_1_norad)
+        #------------------------------------#
+        download_packets(conn,duchifat_3_norad)
+        #download_duchi1_packets_thread = threading.Thread(target=download_packets,args=(conn,duchifat_1_norad))
+        #download_duchi1_packets_thread.start()
 
 
 if __name__ == '__main__':
-    glouton = Glouton()
-    glouton.main()
+    print("test")
+    main()

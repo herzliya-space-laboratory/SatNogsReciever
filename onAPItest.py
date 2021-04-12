@@ -25,7 +25,7 @@ def write_to_file(file_name, mode, text):
 
 def connect_to_endnode():
     s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-    s.bind(("127.0.0.1",3211))
+    s.bind(("127.0.0.1", 3211))
     s.listen(2)
     conn,addr = s.accept()
     return conn
